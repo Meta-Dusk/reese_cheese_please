@@ -83,24 +83,27 @@ class CameraViewfinder extends StatelessWidget {
   }
 
   Widget _buildLevelIndicator() {
-    bool isLevel = tiltAngle.abs() < 0.1;
+    bool isLevel = tiltAngle.abs() < 0.05;
     return IgnorePointer(
       child: Center(
-        child: Transform.rotate(
-          angle: -tiltAngle,
-          child: Container(
-            width: 240,
-            height: 1.5,
-            decoration: BoxDecoration(
-              color: isLevel ? Colors.greenAccent : Colors.white54,
-              boxShadow: [
-                if (isLevel)
-                  const BoxShadow(
-                    color: Colors.greenAccent,
-                    blurRadius: 8,
-                    spreadRadius: 1,
-                  ),
-              ],
+        child: OverflowBox(
+          maxWidth: double.infinity,
+          child: Transform.rotate(
+            angle: -tiltAngle,
+            child: Container(
+              width: 5000,
+              height: 1.5,
+              decoration: BoxDecoration(
+                color: isLevel ? Colors.greenAccent : Colors.white54,
+                boxShadow: [
+                  if (isLevel)
+                    const BoxShadow(
+                      color: Colors.greenAccent,
+                      blurRadius: 8,
+                      spreadRadius: 1,
+                    ),
+                ],
+              ),
             ),
           ),
         ),
