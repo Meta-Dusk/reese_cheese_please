@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
@@ -5,9 +6,11 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 import 'package:gal/gal.dart';
 import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:sensors_plus/sensors_plus.dart';
 
 class DisplayPictureScreen extends StatefulWidget {
   final String imagePath;
@@ -38,20 +41,47 @@ class _DisplayPictureScreenState extends State<DisplayPictureScreen> {
   double _opacity = 0.0;
   final TextEditingController _labelController = TextEditingController();
   final GlobalKey _boundaryKey = GlobalKey();
-
-  @override
-  void dispose() {
-    _labelController.dispose();
-    super.dispose();
-  }
+  bool _isExporting = false;
+  StreamSubscription? _shakeSubscription;
 
   @override
   void initState() {
     super.initState();
-    // Start the "development" fade-in after a short delay
+    _startDevelopment();
+    _initShakeDetection();
+  }
+
+  @override
+  void dispose() {
+    _shakeSubscription?.cancel();
+    _labelController.dispose();
+    super.dispose();
+  }
+
+  void _startDevelopment() {
     Future.delayed(const Duration(milliseconds: 300), () {
-      if (mounted) {
-        setState(() => _opacity = 1.0);
+      if (mounted) setState(() => _opacity = 1.0);
+    });
+  }
+
+  void _initShakeDetection() {
+    // We use userAccelerometer to ignore gravity and only catch physical shakes
+    _shakeSubscription = userAccelerometerEventStream().listen((
+      UserAccelerometerEvent event,
+    ) {
+      // Calculate total movement magnitude
+      double acceleration = sqrt(
+        event.x * event.x + event.y * event.y + event.z * event.z,
+      );
+
+      // If they shake hard enough (threshold ~15-20)
+      if (acceleration > 18 && _opacity < 1.0) {
+        setState(() {
+          // Increase opacity by 15% per shake
+          _opacity = min(1.0, _opacity + 0.15);
+        });
+        // Add a tiny vibration for physical feedback
+        HapticFeedback.lightImpact();
       }
     });
   }
@@ -93,8 +123,8 @@ class _DisplayPictureScreenState extends State<DisplayPictureScreen> {
           fontSize: 18,
           color: Colors.black87,
         ),
-        decoration: const InputDecoration(
-          hintText: "Add a note...",
+        decoration: InputDecoration(
+          hintText: _isExporting ? null : "Add a note...",
           hintStyle: TextStyle(color: Colors.grey, fontSize: 14),
           border: InputBorder.none,
         ),
@@ -112,7 +142,7 @@ class _DisplayPictureScreenState extends State<DisplayPictureScreen> {
     var dynamicImage = AnimatedOpacity(
       opacity: _opacity,
       duration: const Duration(seconds: 4), // Classic slow reveal
-      curve: Curves.easeIn,
+      curve: Curves.easeOut,
       child: Transform(
         alignment: Alignment.center,
         // Apply horizontal flip if it was a front camera shot
@@ -179,6 +209,13 @@ class _DisplayPictureScreenState extends State<DisplayPictureScreen> {
         const SizedBox(width: 20),
         ElevatedButton.icon(
           onPressed: () async {
+            setState(() => _isExporting = true);
+
+            FocusScope.of(context).unfocus();
+            await Future.delayed(const Duration(milliseconds: 100));
+
+            setState(() => _isExporting = false);
+
             final bytes = await _capturePng();
             if (bytes == null) return;
 

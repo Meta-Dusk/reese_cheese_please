@@ -1,8 +1,9 @@
 import 'dart:async';
-import 'dart:io';
 import 'dart:math';
 
 import 'package:reese_gift/display_picture_screen.dart';
+import 'widgets/viewfinder.dart';
+import 'widgets/camera_controls.dart';
 
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
@@ -18,10 +19,11 @@ Future<void> main() async {
   final cameras = await availableCameras();
 
   // Select the first camera (usually the back one)
-  final firstCamera = cameras.first;
+  final firstCamera = cameras.isNotEmpty ? cameras.first : null;
 
   runApp(
     MaterialApp(
+      title: "ReeseCheesePlease",
       theme: ThemeData.dark(),
       home: PolaroidCamera(camera: firstCamera),
     ),
@@ -29,15 +31,14 @@ Future<void> main() async {
 }
 
 class PolaroidCamera extends StatefulWidget {
-  final CameraDescription camera;
+  final CameraDescription? camera;
 
-  const PolaroidCamera({super.key, required this.camera});
+  const PolaroidCamera({super.key, this.camera});
 
   @override
   State<PolaroidCamera> createState() => _PolaroidCameraState();
 }
 
-// TODO: Don't forget to add easter eggs
 class _PolaroidCameraState extends State<PolaroidCamera> {
   late CameraController _controller;
   Future<void>? _initializeControllerFuture;
@@ -82,6 +83,8 @@ class _PolaroidCameraState extends State<PolaroidCamera> {
     _cameras = await availableCameras();
     if (_cameras.isNotEmpty) {
       _initCamera(_cameras[_selectedCameraIndex]);
+    } else {
+      debugPrint("No cameras found on this device.");
     }
   }
 
@@ -116,6 +119,7 @@ class _PolaroidCameraState extends State<PolaroidCamera> {
   }
 
   bool isCurrentCamFront() {
+    if (_cameras.isEmpty) return false;
     var currentCam = _cameras[_selectedCameraIndex];
     return currentCam.lensDirection == CameraLensDirection.front;
   }
@@ -127,9 +131,7 @@ class _PolaroidCameraState extends State<PolaroidCamera> {
   }
 
   void _openGallery() async {
-    if (_lastImagePath == null) return;
-
-    if (_isImageSaved) {
+    if (_isImageSaved || _lastImagePath == null) {
       // Open gallery
       try {
         await Gal.open();
@@ -168,8 +170,11 @@ class _PolaroidCameraState extends State<PolaroidCamera> {
       await _initializeControllerFuture;
       final image = await _controller.takePicture();
 
-      setState(() => _isCapturing = false);
-      setState(() => _lastImagePath = image.path);
+      setState(() {
+        _isCapturing = false;
+        _lastImagePath = image.path;
+        _isImageSaved = false;
+      });
 
       if (!mounted) return;
 
@@ -185,7 +190,7 @@ class _PolaroidCameraState extends State<PolaroidCamera> {
       );
     } catch (e) {
       setState(() => _isCapturing = false);
-      // print(e);
+      debugPrint("Error taking picture: $e");
     }
   }
 
@@ -262,291 +267,144 @@ class _PolaroidCameraState extends State<PolaroidCamera> {
   }
 
   // * --- UI HELPER METHODS ---
-  Widget _buildLevelIndicator() {
-    bool isLevel = _tiltAngle.abs() < 0.1;
-    // debugPrint("isLevel: $isLevel, _tiltAngle: $_tiltAngle");
-
+  Widget _buildOverlays() {
     return IgnorePointer(
-      child: Center(
-        child: Transform.rotate(
-          angle: -_tiltAngle,
-          child: Container(
-            width: 240,
-            height: 1.5,
-            decoration: BoxDecoration(
-              color: isLevel ? Colors.greenAccent : Colors.white54,
-              boxShadow: [
-                if (isLevel)
-                  const BoxShadow(
-                    color: Colors.greenAccent,
-                    blurRadius: 8,
-                    spreadRadius: 1,
-                  ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildGridLines() {
-    return IgnorePointer(
-      child: Container(
-        decoration: BoxDecoration(
-          border: Border.all(color: Colors.white12, width: 1),
-        ),
-        child: Stack(
-          children: [
-            Column(
-              children: [
-                const Spacer(),
-                Divider(color: Colors.white38, height: 1, thickness: 1),
-                const Spacer(),
-                Divider(color: Colors.white38, height: 1, thickness: 1),
-                const Spacer(),
-              ],
-            ),
-            Row(
-              children: [
-                const Spacer(),
-                VerticalDivider(color: Colors.white38, width: 1, thickness: 1),
-                const Spacer(),
-                VerticalDivider(color: Colors.white38, width: 1, thickness: 1),
-                const Spacer(),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildViewfinder() {
-    // If the future hasn't been created yet, show a loader
-    if (_initializeControllerFuture == null) {
-      return const Center(child: CircularProgressIndicator());
-    }
-
-    var scaledCameraFeed = LayoutBuilder(
-      builder: (context, constraints) {
-        var aspectRatio = _controller.value.aspectRatio;
-        var cMaxWidth = constraints.maxWidth;
-        var cMaxHeight = constraints.maxHeight;
-        var scale = 1 / (aspectRatio * cMaxWidth / cMaxHeight);
-        if (scale < 1) scale = 1 / scale;
-
-        return Transform.scale(
-          scale: scale,
-          child: Center(child: CameraPreview(_controller)),
-        );
-      },
-    );
-
-    var mainWidget = Center(
-      child: AspectRatio(
-        aspectRatio: 1, // Forces square
-        child: ClipRect(
-          child: Stack(
-            children: [
-              scaledCameraFeed,
-              if (_showGrid) _buildGridLines(),
-              if (_showLevel) _buildLevelIndicator(),
-            ],
-          ),
-        ),
-      ),
-    );
-
-    return FutureBuilder<void>(
-      future: _initializeControllerFuture,
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.done) {
-          return mainWidget;
-        }
-        return const Center(child: CircularProgressIndicator());
-      },
-    );
-  }
-
-  Widget _buildGalleryButton() {
-    var galleryIcon = ClipOval(
-      child: _lastImagePath != null
-          ? Transform(
-              alignment: Alignment.center,
-              // Flip the preview if it was a front camera shot
-              transform: isCurrentCamFront()
-                  ? Matrix4.rotationY(pi)
-                  : Matrix4.identity(),
-              child: ColorFiltered(
-                colorFilter: warmTint(),
-                child: Image.file(File(_lastImagePath!), fit: BoxFit.cover),
-              ),
-            )
-          : const Icon(Icons.photo, color: Colors.white),
-    );
-
-    return GestureDetector(
-      onTap: _openGallery,
-      // TODO: Wrap container in hero
-      child: Container(
-        width: 50,
-        height: 50,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          border: Border.all(color: Colors.white24, width: 2),
-          color: Colors.white10,
-        ),
-        child: galleryIcon,
-      ),
-    );
-  }
-
-  Widget _buildShutterButton() {
-    return GestureDetector(
-      onTap: _startTimerAndCapture,
       child: Stack(
-        alignment: Alignment.center,
         children: [
-          const Icon(Icons.circle, size: 85, color: Colors.white10),
-          const Icon(Icons.circle, size: 70, color: Colors.white),
+          // Shutter Flash Effect
+          AnimatedOpacity(
+            opacity: _isCapturing ? 1.0 : 0.0,
+            duration: const Duration(milliseconds: 100),
+            child: Container(color: Colors.white),
+          ),
+
+          // Timer Countdown Text
+          if (_isCountingDown)
+            Center(
+              child: Text(
+                '$_currentCount',
+                style: const TextStyle(
+                  fontSize: 120,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white70,
+                  shadows: [
+                    Shadow(
+                      blurRadius: 10,
+                      color: Colors.black54,
+                      offset: Offset(2, 2),
+                    ),
+                  ],
+                ),
+              ),
+            ),
         ],
       ),
     );
   }
 
-  Widget _buildFlashButton() {
-    IconData icon = _currentFlashMode == FlashMode.always
-        ? Icons.flash_on
-        : _currentFlashMode == FlashMode.auto
-        ? Icons.flash_auto
-        : Icons.flash_off;
-    return IconButton(
-      onPressed: _toggleFlash,
-      icon: Icon(icon, color: Colors.white),
+  Widget _buildTopBar() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceAround,
+      children: [
+        FlashButton(mode: _currentFlashMode, onTap: _toggleFlash),
+        TimerButton(
+          timerSeconds: _timerSeconds,
+          onTap: () => setState(() {
+            _timerSeconds = (_timerSeconds == 0)
+                ? 3
+                : (_timerSeconds == 3 ? 10 : 0);
+          }),
+        ),
+        SettingsButton(onPressed: _showSettings),
+      ],
     );
   }
 
-  Widget _buildTimerButton() {
-    return IconButton(
-      onPressed: () {
-        setState(() {
-          if (_timerSeconds == 0) {
-            _timerSeconds = 3;
-          } else if (_timerSeconds == 3) {
-            _timerSeconds = 10;
-          } else {
-            _timerSeconds = 0;
-          }
-        });
-      },
-      icon: switch (_timerSeconds) {
-        3 => const Icon(Icons.timer_3_select),
-        10 => const Icon(Icons.timer_10_select),
-        _ => const Icon(Icons.timer),
-      },
+  Widget _buildBottomBar() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+      children: [
+        GalleryButton(
+          lastImagePath: _lastImagePath,
+          isFrontCamera: isCurrentCamFront(),
+          onTap: _openGallery,
+          warmTint: warmTint(),
+        ),
+        ShutterButton(onTap: _startTimerAndCapture),
+        FlipCameraButton(onPressed: _toggleCamera),
+      ],
     );
   }
 
-  Widget _buildSettingsButton() {
-    return IconButton(onPressed: _showSettings, icon: Icon(Icons.settings));
-  }
-
-  Widget _buildFlipCameraButton() {
-    // ? Maybe try adding a flip animation
-    return IconButton(
-      onPressed: _toggleCamera,
-      icon: const Icon(Icons.flip_camera_android),
+  Widget _buildSideBar() {
+    return Container(
+      width: 120,
+      color: Colors.black,
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        children: [
+          FlashButton(mode: _currentFlashMode, onTap: _toggleFlash),
+          ShutterButton(onTap: _startTimerAndCapture),
+          FlipCameraButton(onPressed: _toggleCamera),
+        ],
+      ),
     );
   }
 
   // * --- MAIN BUILD METHOD ---
   @override
   Widget build(BuildContext context) {
-    var portraitLayout = Column(
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceAround,
-          children: [
-            _buildFlashButton(),
-            _buildTimerButton(),
-            _buildSettingsButton(),
-          ],
-        ),
-        const Spacer(),
-        _buildViewfinder(),
-        const Spacer(),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-          children: [
-            _buildGalleryButton(),
-            _buildShutterButton(),
-            _buildFlipCameraButton(),
-          ],
-        ),
-        const SizedBox(height: 40),
-      ],
-    );
-
-    var landscapeLayout = Row(
-      children: [
-        Expanded(child: _buildViewfinder()),
-        Container(
-          width: 120,
-          color: Colors.black,
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: [
-              _buildFlashButton(),
-              _buildShutterButton(),
-              _buildFlipCameraButton(),
-            ],
-          ),
-        ),
-      ],
-    );
-
-    var orientationBuilder = OrientationBuilder(
-      builder: (context, orientation) {
-        if (orientation == Orientation.portrait) {
-          return portraitLayout;
-        } else {
-          return landscapeLayout;
+    Widget viewfinderWidget = FutureBuilder(
+      future: _initializeControllerFuture,
+      builder: (context, asyncSnapshot) {
+        if (_cameras.isEmpty) {
+          return const Center(child: Text("No camera detected."));
         }
+        if (asyncSnapshot.connectionState == ConnectionState.done) {
+          return CameraViewfinder(
+            controller: _controller,
+            showGrid: _showGrid,
+            showLevel: _showLevel,
+            tiltAngle: _tiltAngle,
+          );
+        }
+        return const Center(child: CircularProgressIndicator());
       },
-    );
-
-    var mainStack = Stack(
-      children: [
-        orientationBuilder,
-
-        // Shutter Flash Overlay
-        IgnorePointer(
-          child: AnimatedOpacity(
-            opacity: _isCapturing ? 1.0 : 0.0,
-            duration: const Duration(milliseconds: 150),
-            curve: Curves.easeIn,
-            child: Container(color: Color(0xFFFFF9E5)),
-          ),
-        ),
-
-        if (_isCountingDown)
-          Center(
-            child: Text(
-              "$_currentCount",
-              style: const TextStyle(
-                fontSize: 120,
-                fontWeight: FontWeight.bold,
-                color: Colors.white70,
-              ),
-            ),
-          ),
-      ],
     );
 
     return Scaffold(
       backgroundColor: Colors.black,
-      body: SafeArea(child: mainStack),
+      body: SafeArea(
+        child: Stack(
+          children: [
+            OrientationBuilder(
+              builder: (context, orientation) {
+                bool isPortrait = orientation == Orientation.portrait;
+
+                return isPortrait
+                    ? Column(
+                        children: [
+                          _buildTopBar(), // Keep top bar at the top
+                          const Spacer(),
+                          viewfinderWidget,
+                          const Spacer(),
+                          _buildBottomBar(), // Custom bar for Portrait
+                          const SizedBox(height: 40),
+                        ],
+                      )
+                    : Row(
+                        children: [
+                          Expanded(child: viewfinderWidget),
+                          _buildSideBar(), // Custom bar for Landscape
+                        ],
+                      );
+              },
+            ),
+
+            _buildOverlays(),
+          ],
+        ),
+      ),
     );
   }
 }
