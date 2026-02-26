@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:math';
-import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
@@ -59,8 +58,14 @@ class _DisplayPictureScreenState extends State<DisplayPictureScreen> {
   }
 
   void _startDevelopment() {
-    Future.delayed(const Duration(milliseconds: 300), () {
-      if (mounted) setState(() => _opacity = 1.0);
+    Timer.periodic(const Duration(milliseconds: 100), (timer) {
+      if (!mounted || _opacity >= 1.0) {
+        timer.cancel();
+        return;
+      }
+      setState(() {
+        _opacity = (_opacity + 0.025).clamp(0.0, 1.0);
+      });
     });
   }
 
@@ -74,15 +79,15 @@ class _DisplayPictureScreenState extends State<DisplayPictureScreen> {
         event.x * event.x + event.y * event.y + event.z * event.z,
       );
 
-      // If they shake hard enough (threshold ~15-20)
-      if (acceleration > 18 && _opacity < 1.0) {
+      // THRESHOLD: 12-15 is a firm wiggle. 20+ is a violent shake.
+      if (acceleration > 15 && _opacity < 1.0) {
         setState(() {
-          // Increase opacity by 15% per shake
-          _opacity = min(1.0, _opacity + 0.15);
+          _opacity = (_opacity + 0.10).clamp(0.0, 1.0);
         });
-        // Add a tiny vibration for physical feedback
         HapticFeedback.lightImpact();
       }
+      // debugPrint("Opacity: $_opacity");
+      // debugPrint("acceleration: $acceleration, event: ${event.toString()}");
     });
   }
 
@@ -99,7 +104,7 @@ class _DisplayPictureScreenState extends State<DisplayPictureScreen> {
       );
       return byteData?.buffer.asUint8List();
     } catch (e) {
-      // print(e);
+      debugPrint("Error capturing image: $e");
       return null;
     }
   }
@@ -113,15 +118,15 @@ class _DisplayPictureScreenState extends State<DisplayPictureScreen> {
 
   @override
   Widget build(BuildContext context) {
-    var imageNote = Padding(
+    Widget imageNote = Padding(
       padding: const EdgeInsets.symmetric(horizontal: 10),
       child: TextField(
         controller: _labelController,
         textAlign: TextAlign.center,
-        style: const TextStyle(
+        style: TextStyle(
           fontFamily: 'PermanentMarker',
           fontSize: 18,
-          color: Colors.black87,
+          color: Colors.black87.withValues(alpha: _opacity),
         ),
         decoration: InputDecoration(
           hintText: _isExporting ? null : "Add a note...",
@@ -139,10 +144,10 @@ class _DisplayPictureScreenState extends State<DisplayPictureScreen> {
       ),
     );
 
-    var dynamicImage = AnimatedOpacity(
+    Widget dynamicImage = AnimatedOpacity(
       opacity: _opacity,
-      duration: const Duration(seconds: 4), // Classic slow reveal
-      curve: Curves.easeOut,
+      duration: const Duration(milliseconds: 100),
+      curve: Curves.linear,
       child: Transform(
         alignment: Alignment.center,
         // Apply horizontal flip if it was a front camera shot
@@ -161,7 +166,7 @@ class _DisplayPictureScreenState extends State<DisplayPictureScreen> {
       ),
     );
 
-    var imageComposite = Column(
+    Widget imageComposite = Column(
       mainAxisSize: MainAxisSize.min,
       children: [
         // The "Developing" Image
@@ -172,7 +177,7 @@ class _DisplayPictureScreenState extends State<DisplayPictureScreen> {
       ],
     );
 
-    var polaroidFrame = RepaintBoundary(
+    Widget polaroidFrame = RepaintBoundary(
       key: _boundaryKey,
       child: Container(
         padding: const EdgeInsets.fromLTRB(
@@ -196,7 +201,7 @@ class _DisplayPictureScreenState extends State<DisplayPictureScreen> {
       ),
     );
 
-    var actionButtons = Row(
+    Widget actionButtons = Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         OutlinedButton.icon(
@@ -248,7 +253,7 @@ class _DisplayPictureScreenState extends State<DisplayPictureScreen> {
       ],
     );
 
-    var column = Column(
+    Widget column = Column(
       mainAxisSize: MainAxisSize.min,
       children: [
         // The Physical Polaroid Frame

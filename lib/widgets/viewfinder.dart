@@ -17,30 +17,29 @@ class CameraViewfinder extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    Widget scaledCameraFeed = LayoutBuilder(
+      builder: (context, constraints) {
+        double aspectRatio = controller.value.aspectRatio;
+        double cMaxWidth = constraints.maxWidth;
+        double cMaxHeight = constraints.maxHeight;
+        double scale = 1 / (aspectRatio * cMaxWidth / cMaxHeight);
+        if (scale < 1) scale = 1 / scale;
+
+        return Transform.scale(
+          scale: scale,
+          child: Center(child: CameraPreview(controller)),
+        );
+      },
+    );
+
     return Center(
       child: AspectRatio(
         aspectRatio: 1, // Forces square
         child: ClipRect(
           child: Stack(
             children: [
-              // 1. The Scaled Camera Feed
-              LayoutBuilder(
-                builder: (context, constraints) {
-                  var aspectRatio = controller.value.aspectRatio;
-                  var scale =
-                      1 /
-                      (aspectRatio *
-                          constraints.maxWidth /
-                          constraints.maxHeight);
-                  if (scale < 1) scale = 1 / scale;
-
-                  return Transform.scale(
-                    scale: scale,
-                    child: Center(child: CameraPreview(controller)),
-                  );
-                },
-              ),
-              // 2. Overlays
+              scaledCameraFeed,
+              // Overlays
               if (showGrid) _buildGridLines(),
               if (showLevel) _buildLevelIndicator(),
             ],
@@ -48,6 +47,11 @@ class CameraViewfinder extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  List<Widget> _buildSimpleGrid() {
+    Widget widget = Divider(color: Colors.white38, thickness: 1);
+    return [const Spacer(), widget, const Spacer(), widget, const Spacer()];
   }
 
   Widget _buildGridLines() {
@@ -58,24 +62,8 @@ class CameraViewfinder extends StatelessWidget {
         ),
         child: Stack(
           children: [
-            Column(
-              children: [
-                const Spacer(),
-                Divider(color: Colors.white38, thickness: 1),
-                const Spacer(),
-                Divider(color: Colors.white38, thickness: 1),
-                const Spacer(),
-              ],
-            ),
-            Row(
-              children: [
-                const Spacer(),
-                VerticalDivider(color: Colors.white38, thickness: 1),
-                const Spacer(),
-                VerticalDivider(color: Colors.white38, thickness: 1),
-                const Spacer(),
-              ],
-            ),
+            Column(children: _buildSimpleGrid()),
+            Row(children: _buildSimpleGrid()),
           ],
         ),
       ),
