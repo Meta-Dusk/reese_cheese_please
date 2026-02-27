@@ -49,8 +49,10 @@ class CameraViewfinder extends StatelessWidget {
     );
   }
 
-  List<Widget> _buildSimpleGrid() {
-    Widget widget = Divider(color: Colors.white38, thickness: 1);
+  List<Widget> _buildSimpleGrid({bool vertical = false}) {
+    Widget widget = vertical
+        ? VerticalDivider(color: Colors.white38, thickness: 1)
+        : Divider(color: Colors.white38, thickness: 1);
     return [const Spacer(), widget, const Spacer(), widget, const Spacer()];
   }
 
@@ -63,7 +65,7 @@ class CameraViewfinder extends StatelessWidget {
         child: Stack(
           children: [
             Column(children: _buildSimpleGrid()),
-            Row(children: _buildSimpleGrid()),
+            Row(children: _buildSimpleGrid(vertical: true)),
           ],
         ),
       ),

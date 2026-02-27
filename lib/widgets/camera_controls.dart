@@ -89,12 +89,20 @@ class FlashButton extends StatelessWidget {
 
 class SettingsButton extends StatelessWidget {
   final VoidCallback onPressed;
+  final VoidCallback onLongPress;
 
-  const SettingsButton({super.key, required this.onPressed});
+  const SettingsButton({
+    super.key,
+    required this.onPressed,
+    required this.onLongPress,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return IconButton(onPressed: onPressed, icon: Icon(Icons.settings));
+    return GestureDetector(
+      onLongPress: onLongPress,
+      child: IconButton(onPressed: onPressed, icon: Icon(Icons.settings)),
+    );
   }
 }
 

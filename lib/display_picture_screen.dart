@@ -10,17 +10,20 @@ import 'package:gal/gal.dart';
 import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:sensors_plus/sensors_plus.dart';
+import 'package:vibration/vibration.dart';
 
 class DisplayPictureScreen extends StatefulWidget {
   final String imagePath;
   final bool isFrontCamera;
   final VoidCallback onSaveSuccess;
+  final bool Function() isBirthdayCheck;
 
   const DisplayPictureScreen({
     super.key,
     required this.imagePath,
     required this.isFrontCamera,
     required this.onSaveSuccess,
+    required this.isBirthdayCheck,
   });
 
   @override
@@ -69,6 +72,12 @@ class _DisplayPictureScreenState extends State<DisplayPictureScreen> {
     });
   }
 
+  void _vibrate({int duration = 50}) async {
+    if (await Vibration.hasVibrator()) {
+      Vibration.vibrate(duration: duration);
+    }
+  }
+
   void _initShakeDetection() {
     // We use userAccelerometer to ignore gravity and only catch physical shakes
     _shakeSubscription = userAccelerometerEventStream().listen((
@@ -79,14 +88,13 @@ class _DisplayPictureScreenState extends State<DisplayPictureScreen> {
         event.x * event.x + event.y * event.y + event.z * event.z,
       );
 
-      // THRESHOLD: 12-15 is a firm wiggle. 20+ is a violent shake.
-      if (acceleration > 15 && _opacity < 1.0) {
+      if (acceleration > 1.5 && _opacity < 1.0) {
         setState(() {
-          _opacity = (_opacity + 0.10).clamp(0.0, 1.0);
+          _opacity = (_opacity + 0.15).clamp(0.0, 1.0);
         });
-        HapticFeedback.lightImpact();
+        _vibrate(duration: 30);
       }
-      // debugPrint("Opacity: $_opacity");
+      debugPrint("Opacity: $_opacity");
       // debugPrint("acceleration: $acceleration, event: ${event.toString()}");
     });
   }
@@ -114,6 +122,34 @@ class _DisplayPictureScreenState extends State<DisplayPictureScreen> {
     // Format: 2026-02-24_17-30-45 (Year-Month-Day_Hour-Minute-Second)
     final String formatter = DateFormat('yyyy-MM-dd_HH-mm-ss').format(now);
     return '${directory.path}/polaroid_$formatter.png';
+  }
+
+  List<Widget> _getPartyDecors() {
+    Widget partyHat = Positioned(
+      top: -10,
+      right: 30,
+      child: Transform.rotate(
+        angle: 30 * (pi / 180),
+        child: Image.asset(
+          "assets/images/party_hat.png",
+          width: 100,
+          height: 100,
+          opacity: AlwaysStoppedAnimation(_opacity),
+        ),
+      ),
+    );
+    Widget birthdayCake = Positioned(
+      bottom: 5,
+      left: 0,
+      right: 0,
+      child: Image.asset(
+        "assets/images/bday_cake.png",
+        width: 50,
+        height: 50,
+        opacity: AlwaysStoppedAnimation(_opacity),
+      ),
+    );
+    return [partyHat, birthdayCake];
   }
 
   @override
@@ -179,25 +215,30 @@ class _DisplayPictureScreenState extends State<DisplayPictureScreen> {
 
     Widget polaroidFrame = RepaintBoundary(
       key: _boundaryKey,
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(
-          16,
-          16,
-          16,
-          50,
-        ), // Thick bottom handle
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(2),
-          boxShadow: const [
-            BoxShadow(
-              color: Colors.black45,
-              blurRadius: 20,
-              offset: Offset(0, 10),
+      child: Stack(
+        children: [
+          Container(
+            padding: const EdgeInsets.fromLTRB(
+              16,
+              16,
+              16,
+              50,
+            ), // Thick bottom handle
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(2),
+              boxShadow: const [
+                BoxShadow(
+                  color: Colors.black45,
+                  blurRadius: 20,
+                  offset: Offset(0, 10),
+                ),
+              ],
             ),
-          ],
-        ),
-        child: imageComposite,
+            child: imageComposite,
+          ),
+          if (widget.isBirthdayCheck()) ..._getPartyDecors(),
+        ],
       ),
     );
 
