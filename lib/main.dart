@@ -1,15 +1,17 @@
 import 'dart:async';
 import 'dart:math';
 
-import 'package:reese_gift/display_picture_screen.dart';
-import 'widgets/viewfinder.dart';
-import 'widgets/camera_controls.dart';
-
+import 'package:audioplayers/audioplayers.dart';
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:gal/gal.dart';
 import 'package:sensors_plus/sensors_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import 'package:reese_gift/display_picture_screen.dart';
+import 'package:vibration/vibration.dart';
+import 'widgets/viewfinder.dart';
+import 'widgets/camera_controls.dart';
 
 Future<void> main() async {
   // Ensure plugin services are initialized
@@ -55,12 +57,22 @@ class _PolaroidCameraState extends State<PolaroidCamera> {
   StreamSubscription? _accelerometerSubcription;
   bool _showLevel = false;
   bool _isImageSaved = false;
+  String? _savedName;
+  bool _showGreeting = false;
+  final AudioPlayer _audioPlayer = AudioPlayer();
 
   @override
   void initState() {
     super.initState();
     _setupCamera();
     _setupAccelerometer();
+    _loadSavedName().then((_) {
+      if (isReeseBirthday) {
+        Future.delayed(const Duration(seconds: 1), () {
+          if (mounted) setState(() => _showGreeting = true);
+        });
+      }
+    });
   }
 
   void _setupAccelerometer() {
@@ -94,11 +106,25 @@ class _PolaroidCameraState extends State<PolaroidCamera> {
     if (mounted) setState(() {});
   }
 
+  Future<void> _loadSavedName() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (mounted) {
+      setState(() {
+        _savedName = prefs.getString('user_name');
+      });
+    }
+  }
+
   @override
   void dispose() {
     _controller.dispose();
     _accelerometerSubcription?.cancel();
+    _audioPlayer.dispose();
     super.dispose();
+  }
+
+  void _playShutterSound() async {
+    await _audioPlayer.play(AssetSource("audio/camera-shutter.mp3"));
   }
 
   void _toggleCamera() {
@@ -148,6 +174,7 @@ class _PolaroidCameraState extends State<PolaroidCamera> {
               imagePath: _lastImagePath!,
               isFrontCamera: isCurrentCamFront(),
               onSaveSuccess: onSaveSuccess,
+              isBirthdayCheck: () => isReeseBirthday,
             ),
           ),
         );
@@ -157,9 +184,16 @@ class _PolaroidCameraState extends State<PolaroidCamera> {
     }
   }
 
+  void _vibrate({int duration = 50}) async {
+    if (await Vibration.hasVibrator()) {
+      Vibration.vibrate(duration: duration);
+    }
+  }
+
   void _takePicture() async {
     setState(() => _isCapturing = true);
-    HapticFeedback.mediumImpact();
+    _vibrate();
+    _playShutterSound();
 
     if (_initializeControllerFuture == null ||
         !_controller.value.isInitialized) {
@@ -178,13 +212,14 @@ class _PolaroidCameraState extends State<PolaroidCamera> {
 
       if (!mounted) return;
 
-      HapticFeedback.mediumImpact();
+      _vibrate();
       Navigator.of(context).push(
         MaterialPageRoute(
           builder: (context) => DisplayPictureScreen(
             imagePath: image.path,
             isFrontCamera: isCurrentCamFront(),
             onSaveSuccess: onSaveSuccess,
+            isBirthdayCheck: () => isReeseBirthday,
           ),
         ),
       );
@@ -215,6 +250,79 @@ class _PolaroidCameraState extends State<PolaroidCamera> {
     _takePicture();
   }
 
+  void _showStyledModal(Widget content) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF1A1A1A),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(context).viewInsets.bottom,
+          top: 20,
+          left: 20,
+          right: 20,
+        ),
+        child: content,
+      ),
+    );
+  }
+
+  Future<void> _saveName(String name) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('user_name', name.toLowerCase().trim());
+  }
+
+  void _showSecretNameDialog() {
+    final TextEditingController nameController = TextEditingController(
+      text: _savedName ?? "",
+    );
+
+    _showStyledModal(
+      Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text(
+            "Enter Access Code",
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          ),
+          const Divider(color: Colors.white24),
+          TextField(
+            controller: nameController,
+            autofocus: true,
+            decoration: const InputDecoration(
+              hintText: "Who is using this camera?",
+              border: UnderlineInputBorder(),
+            ),
+            onSubmitted: (value) async {
+              final cleanName = value.toLowerCase().trim();
+              await _saveName(cleanName);
+
+              if (!mounted) return;
+
+              setState(() => _savedName = cleanName);
+              Navigator.pop(context);
+
+              if (!isReeseBirthday) return;
+
+              Future.delayed(const Duration(milliseconds: 500), () {
+                if (mounted) setState(() => _showGreeting = true);
+              });
+            },
+          ),
+          const SizedBox(height: 20),
+        ],
+      ),
+    );
+  }
+
+  bool get isReeseBirthday {
+    final now = DateTime.now();
+    bool isFeb27 = now.month == 2 && now.day == 27;
+    return isFeb27 && _savedName?.toLowerCase() == "reese";
+  }
+
   void _showSettings() {
     showModalBottomSheet(
       context: context,
@@ -223,46 +331,101 @@ class _PolaroidCameraState extends State<PolaroidCamera> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setModalState) {
-            return Padding(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Text(
-                    "Camera Settings",
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                  ),
-                  const Divider(color: Colors.white24),
-                  ListTile(
-                    leading: const Icon(Icons.grid_on),
-                    title: const Text("Show Grid Lines"),
-                    trailing: Switch(
-                      value: _showGrid,
-                      onChanged: (value) {
-                        setState(() => _showGrid = value);
-                        setModalState(() => _showGrid = value);
-                      },
-                    ),
-                  ),
-                  ListTile(
-                    leading: const Icon(Icons.horizontal_distribute),
-                    title: const Text("Show Level Indicator"),
-                    trailing: Switch(
-                      value: _showLevel,
-                      onChanged: (value) {
-                        setState(() => _showLevel = value);
-                        setModalState(() => _showLevel = value);
-                      },
-                    ),
-                  ),
-                ],
+        return settingsMenu();
+      },
+    );
+  }
+
+  Widget settingsMenu() {
+    return StatefulBuilder(
+      builder: (context, setModalState) {
+        return Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                "Camera Settings",
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
               ),
-            );
-          },
+              const Divider(color: Colors.white24),
+              ListTile(
+                leading: const Icon(Icons.grid_on),
+                title: const Text("Show Grid Lines"),
+                trailing: Switch(
+                  value: _showGrid,
+                  onChanged: (value) {
+                    setState(() => _showGrid = value);
+                    setModalState(() => _showGrid = value);
+                  },
+                ),
+              ),
+              ListTile(
+                leading: const Icon(Icons.horizontal_distribute),
+                title: const Text("Show Level Indicator"),
+                trailing: Switch(
+                  value: _showLevel,
+                  onChanged: (value) {
+                    setState(() => _showLevel = value);
+                    setModalState(() => _showLevel = value);
+                  },
+                ),
+              ),
+            ],
+          ),
         );
       },
+    );
+  }
+
+  Widget _buildBirthdayBanner() {
+    var notifContainer = Container(
+      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 20),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1A1A1A).withValues(alpha: 0.9),
+        borderRadius: BorderRadius.circular(30),
+        border: Border.all(color: Colors.amberAccent.withValues(alpha: 0.5)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black54,
+            blurRadius: 10,
+            offset: Offset(0, 4),
+          ),
+        ],
+      ),
+      child: const Row(
+        mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.cake, color: Colors.amberAccent, size: 20),
+          SizedBox(width: 10),
+          Text(
+            "Happy Birthday, Reese!",
+            style: TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+              fontSize: 16,
+            ),
+          ),
+          SizedBox(width: 10),
+          Icon(Icons.celebration, color: Colors.amberAccent, size: 20),
+        ],
+      ),
+    );
+
+    return AnimatedPositioned(
+      duration: const Duration(milliseconds: 800),
+      curve: Curves.bounceOut,
+      top: _showGreeting ? 20 : -100,
+      left: 20,
+      right: 20,
+      child: GestureDetector(
+        child: notifContainer,
+        onTap: () {
+          setState(() => _showGreeting = false);
+          _vibrate(duration: 30);
+        },
+      ),
     );
   }
 
@@ -315,7 +478,10 @@ class _PolaroidCameraState extends State<PolaroidCamera> {
                 : (_timerSeconds == 3 ? 10 : 0);
           }),
         ),
-        SettingsButton(onPressed: _showSettings),
+        SettingsButton(
+          onPressed: _showSettings,
+          onLongPress: _showSecretNameDialog,
+        ),
       ],
     );
   }
@@ -402,6 +568,7 @@ class _PolaroidCameraState extends State<PolaroidCamera> {
             ),
 
             _buildOverlays(),
+            if (_showGreeting) _buildBirthdayBanner(),
           ],
         ),
       ),
